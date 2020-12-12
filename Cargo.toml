@@ -8,3 +8,5 @@ edition = "2018"
 
 [dependencies]
 bevy = {version="0.3"}
+nalgebra = {version="0.23.1"}
+rand = "*"
