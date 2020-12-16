@@ -1,4 +1,5 @@
 mod viewer;
+mod fluid_sim;
 use bevy::{prelude::*};
 use nalgebra as na;
 use viewer::FluidSimViewer;
