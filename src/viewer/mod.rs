@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use crate::fluid_sim::{FluidSim, SimConfig};
+use crate::fluid_sim::forces::ConstantForce;
 use nalgebra as na;
 
 
@@ -14,13 +16,13 @@ pub struct SimVolume {
 }
 
 pub struct FluidSimViewer {
-    pub sim_volume: SimVolume
+    pub config: SimConfig
 }
 
 impl Plugin for FluidSimViewer {
     fn build(&self, app: &mut AppBuilder) {
         // add things to your app here
-        app.add_resource(self.sim_volume)
+        app.add_resource(FluidSim::new(self.config, ConstantForce {force: na::Vector3::new(0.0, -0.00098, 0.0)}))
            .add_startup_system(setup.system())
            .add_system(rotate_camera.system())
            .add_system(update_view_particles.system());
@@ -33,8 +35,8 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    sim_volume: ResMut<SimVolume>
-) {
+    fluid_sim: Res<FluidSim<ConstantForce>>
+    ) {
     // add entities to the world
     commands
         // plane
@@ -45,9 +47,9 @@ fn setup(
         })
         // cube
         .spawn(PbrComponents {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: sim_volume.size.max() })),
+            mesh: meshes.add(Mesh::from(shape::Cube { size: fluid_sim.get_grid().dims.max() })),
             material: materials.add(StandardMaterial {shaded:true, albedo: Color::rgba(1.0,1.0,1.0,0.1) ,..Default::default()}),
-            transform: Transform::from_translation(to_glam(sim_volume.center)),
+            transform: Transform::from_translation(to_glam(fluid_sim.get_grid().dims*0.5)),
             draw: Draw {
                 is_transparent: true,
                 ..Default::default()
@@ -65,8 +67,8 @@ fn setup(
                 .looking_at(Vec3::default(), Vec3::unit_y()),
             ..Default::default()
         }).with(RotatingCamera{speed: 2.0, angle: 0.0, distance: 10.0});
-
-    for _ in 0..sim_volume.num_vis_particles {
+    // Make view particles 
+    for _ in 0..64 {
         commands.spawn(
             PbrComponents {
                 mesh: meshes.add(Mesh::from(shape::Icosphere { radius: 0.1, subdivisions:1 })),
@@ -109,14 +111,21 @@ fn rotate_camera(time: Res<Time>,
 }
 
 fn update_view_particles(time: Res<Time>, 
-                    sim_volume: Res<SimVolume>, 
+                    mut fluid_sim: ResMut<FluidSim<ConstantForce>>, 
                     mut particles: Query<(&ViewParticle, &mut Transform)>) {
-    
-    let width = sim_volume.size.min()/2.0;
-    for (_, mut particle_trans) in particles.iter_mut() {
-        // TODO update transforms using simulation code
-        *particle_trans.translation.x_mut() = (time.seconds_since_startup.cos() as f32)*width;
-        *particle_trans.translation.y_mut() = (time.seconds_since_startup.sin() as f32)*width;
-        *particle_trans.translation.z_mut() = (time.seconds_since_startup.sin() as f32)*width;
+    fluid_sim.step();
+    let mut vis_parts = particles.iter_mut();
+    for (i, j, k) in fluid_sim.get_grid().cells() {
+        for particle in &fluid_sim.particles.particles[i][j][k] {
+            let vis_part = vis_parts.next();
+            if vis_part.is_some() {
+                let (_, mut particle_trans) = vis_part.unwrap();
+                *particle_trans.translation.x_mut() = particle.position[0];
+                *particle_trans.translation.y_mut() = particle.position[1];
+                *particle_trans.translation.z_mut() = particle.position[2];        
+            } else {
+                return;
+            }
+        }
     }
 }

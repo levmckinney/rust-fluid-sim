@@ -1,15 +1,14 @@
-use super::particle::{Particle};
+use super::particle::{Particle, Particles};
+use super::utils::{sum_from_triplets, Triplets, Grid};
+use nalgebra::base::dimension::{U6, U7};
 use nalgebra as na;
 
+
 pub struct MACGrid {
-    // Generalized velocity
-    dims: na::Vector3<f32>,
-    grid_shape: (usize, usize, usize),
-    density: f32,
-    div_grad_op: na::CsMatrix<f32>,
-    div_op: na::CsMatrix<f32>,
-    q: na::DVector<f32>,
-    p: na::DVector<f32>,
+    pub grid: Grid,
+    pub density: f32,
+    pub q: na::DVector<f32>,
+    pub p: na::DVector<f32>,
 }
 
 enum Component {
@@ -19,21 +18,21 @@ enum Component {
 }
 
 impl MACGrid {
-    pub fn new(dims: na::Vector3<f32>, grid_shape: (usize, usize, usize), density: f32) -> Self {
-        let num_cells = grid_shape.0*grid_shape.1*grid_shape.2;
-        // We need to add one here because we must have 
-        let num_velocities = (grid_shape.0 + 1)*(grid_shape.1 + 1)*(grid_shape.2 + 1);
-        let deltas = na::Vector3::<f32>::new(dims[0]/(grid_shape.0 as f32), 
-                                           dims[1]/(grid_shape.1 as f32), 
-                                           dims[2]/(grid_shape.2 as f32))
-        MACGrid{ 
-            dims,
-            grid_shape,
-            div_grad_op: div_of_grad_operator_global(grid_shape, deltas),
-            div_op: div_operator_global(grid_shape, deltas),
-            density,
-            q: na::DVector::<f32>::zeros(num_velocities*3),
-            p: na::DVector::<f32>::zeros(num_cells)
+    pub fn new(grid: &Grid, density: f32) -> Self {
+        let Grid {dims, grid_shape} = grid;
+        // In order to compute the divergence of the velocity we need information
+        // from the current and the three adjacent cells so for cell (i,j,k) we need info 
+        // from cell (i+1.j,k), (i.j+1,k) and (i.j,k+1) thus to make the boundary of the grid
+        // work out we need.
+        let num_velocity_cells = (grid_shape.0 + 1)*(grid_shape.1 + 1)*(grid_shape.2 + 1);
+        // On the other hand for pressure we need information for all adjacent cells to compute
+        // div grad pressure thus we need a larger grid to handle the boundary nicely.
+        let num_pressure_cells = (grid_shape.0 + 2)*(grid_shape.1 + 2)*(grid_shape.2 + 2);
+        MACGrid {
+            grid: *grid,
+            q: na::DVector::<f32>::zeros(num_velocity_cells*3),
+            p: na::DVector::<f32>::zeros(num_pressure_cells),
+            density
         }
     }
 
@@ -42,7 +41,7 @@ impl MACGrid {
         unimplemented!();
     }
 
-    pub fn set_from_particles<T>(&mut self, particles: &[Particle<T>]){
+    pub fn set_from_particles<T>(&mut self, particles: &Particles){
         unimplemented!();
     }
 
@@ -51,11 +50,7 @@ impl MACGrid {
     }
 
     //Private methods
-    /// Returns the pressure at this point on the boundary get pressure at boundary
-    fn boundary_condition_pressure(&self, i: usize, j:usize, k: usize) -> f32{
-        0.0
-    }
-
+    // Useful latter for implementing constant flow boundary condition.
     fn boundary_velocity(&self, c:Component, i: usize, j:usize, k: usize) -> f32 {
         0.0
     }
@@ -77,27 +72,27 @@ impl MACGrid {
     }
 
     /// Returns the boundary filter for the cell at position 
-    fn get_boundary_filter(&self, i:usize, j:usize, k:usize) -> na::MatrixN<f32,6> {
+    fn get_boundary_filter(&self, i:usize, j:usize, k:usize) -> na::Matrix6<f32> {
         unimplemented!();
     }
 
     /// Returns local div operator
-    fn div_operator_local(&self, deltas: na::Vector3<f32>) -> na::Matrix3x1<f32> {
+    fn div_operator_local(&self, deltas: na::Vector3<f32>) -> na::Matrix6x1<f32> {
         unimplemented!();
     }
 
     // what is the shape of the input operator vector?
-    fn div_of_grad_operator_local(&self, deltas: na::Vector3<f32>) -> na::MatrixN<f32,6> {
+    fn div_of_grad_operator_local(&self, deltas: na::Vector3<f32>) -> na::MatrixMN<f32, U6, U7> {
         unimplemented!();
     }
 
     /// Returns global divergence operator matrix.
-    fn div_operator_global(&self, deltas: na::Vector3<f32>) -> na::CsMatrix<f32>{
+    fn div_of_velocity_operator_global(&self, deltas: na::Vector3<f32>) -> na::CsMatrix<f32> {
         unimplemented!();
-    } 
+    }
 
-    /// Returns global divergence grad operator.
-    fn div_of_grad_operator_global(&self, deltas: na::Vector3<f32>) -> na::CsMatrix<f32>{
+    /// Returns global divergence of grad of pressure matrix.
+    fn div_of_grad_of_pressure_operator_global(&self, deltas: na::Vector3<f32>) -> na::CsMatrix<f32>{
         unimplemented!();
     }
 }
