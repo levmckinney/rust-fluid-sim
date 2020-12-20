@@ -2,7 +2,6 @@ use super::mac_grid::{MACGrid, Component};
 use super::forces::Force;
 use super::utils::{Grid};
 
-use std::iter;
 use rand::{thread_rng, Rng};
 use rand::distributions::Uniform;
 use rand::distributions::Distribution;
@@ -93,7 +92,7 @@ impl Particles {
     pub fn update_using_pic(&mut self, mac_grid: &MACGrid, q: &na::DVector<f32>) {
         for (i, j, k) in self.sub_grid.cells() {
             for comp in Component::iterator() {
-                let comp_grid = mac_grid.get_vel_grid(comp);
+                let comp_grid = mac_grid.get_velocity_grid(comp);
                 let enclosing_grid_cell = match comp {
                     Component::U => ((i + 1)/2, j/2, k/2),
                     Component::V => (i/2, (j + 1)/2, k/2),
@@ -109,7 +108,7 @@ impl Particles {
                     let mut velocity = 0.0;
                     for corner in &corners {
                         let weight = comp_grid.bilinear_weight(corner, &particle.position);
-                        let vel_component = q[mac_grid.get_vel_ind(comp, corner.0, corner.1, corner.2)];
+                        let vel_component = q[mac_grid.get_velocity_ind(comp, corner.0, corner.1, corner.2)];
                         velocity += weight*vel_component
                     }
                     match comp {

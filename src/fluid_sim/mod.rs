@@ -1,7 +1,7 @@
 pub mod particle;
 pub mod mac_grid;
 pub mod forces;
-//pub(crate) mod conjugate_gradient;
+pub(crate) mod conjugate_gradient;
 pub mod utils;
 
 use particle::{Particle, Particles};
@@ -37,53 +37,43 @@ impl Default for SimConfig {
 pub struct FluidSim<T> where T: Force {
     dt: f32,
     mac_grid: MACGrid,
-    q: na::DVector<f32>,
-    p: na::DVector<f32>,
+    velocity: na::DVector<f32>,
+    pressure: na::DVector<f32>,
     pub particles: Particles,
-    force: T
+    external_force: T
 }
 
 /// Fluid simulator
-impl<T> FluidSim <T> where T: Force{
+impl<T> FluidSim <T> where T: Force {
 
-    /// Arguments:
-    /// * config - The configuration for the simulation
-    /// Returns:
+    /// #Arguments:
+    /// * `config` - The configuration for the simulation.
+    /// * `external_force` - The external forces acting on the fluid.
+    /// # Returns:
     /// * A newly constructed fluid sim
-    pub fn new(config: SimConfig, force: T) -> Self {
+    pub fn new(config: SimConfig, external_force: T) -> Self {
         let mac_grid = MACGrid::new(&config.grid, config.density);
-        let q = na::DVector::zeros(mac_grid.get_q_size());
-        let p = na::DVector::zeros(mac_grid.get_p_size());
+        let velocity = na::DVector::zeros(mac_grid.get_velocity_size());
+        let pressure = na::DVector::zeros(mac_grid.get_pressure_size());
         Self {
             dt: config.delta_time,
             mac_grid,
             particles: Particles::filled(&config.grid),
-            force: force,
-            q,
-            p
+            external_force,
+            velocity,
+            pressure
         }
     }
 
-    /// Arguments:
-    /// * position - the position to sample at
-    /// Returns:
-    /// * the velocity at said position if it is within the simvolume otherwise
-    /// * it returns nothing.
-    pub fn get_velocity(pos: na::Vector3<f32>) -> Option<na::Vector3<f32>> {
-        unimplemented!()
-    }
-
-    /// Arguments:
-    /// * dt - amount of time to step the fluid simulation
     /// Results:
     /// * updates the state of the simulation by one time step of length dt.
     pub fn step(&mut self) {
-        // TODO: Transfer particle velocities to grid
+        let div = self.mac_grid.div_velocity_operator();
+        let div_grad = self.mac_grid.div_grad_pressure_operator();
         self.particles.advect(self.dt);
-        self.particles.apply_force(&self.force, self.dt);
-        self.mac_grid.set_from_particles(&mut self.q, &self.particles);
-        // TODO: pressure project
-        self.particles.update_using_pic(&self.mac_grid, &self.q);
+        self.particles.apply_force(&self.external_force, self.dt);
+        self.mac_grid.set_from_particles(&mut self.velocity, &self.particles);
+        self.particles.update_using_pic(&self.mac_grid, &self.velocity);
     }
 
     pub fn get_grid(&self) -> Grid {

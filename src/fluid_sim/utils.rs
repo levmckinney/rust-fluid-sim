@@ -73,6 +73,11 @@ impl Grid {
         self.offset + centered
     }
 
+    /// Return wether (i, j, k) is an index of a cell within the grid.
+    pub fn index_within(&self, i: usize, j: usize, k: usize) -> bool {
+        i < self.grid_shape.0 && j < self.grid_shape.1 && k < self.grid_shape.2
+    }
+
     /// Get number of cells within the grid
     pub fn num_cells(&self) -> usize {
         self.grid_shape.0*self.grid_shape.1*self.grid_shape.2
@@ -150,28 +155,14 @@ fn sum_duplicate_triplets(triplets: Triplets) -> Triplets {
 /// Sum duplicate entries.
 pub fn sum_from_triplets(nrows: usize, ncols: usize, triplets: Triplets) -> na::CsMatrix<f32> {
     let deduped_triplets = sum_duplicate_triplets(triplets);
+    for ((i, j), _) in &deduped_triplets {
+        assert!(*i < nrows && *j < ncols, "i: {:?}, j:{:?}, nrows: {:?} ncols: {:?}", i, j, nrows, ncols);
+    }
     let (inds, vals): (Vec<(usize, usize)>, Vec<f32>) = deduped_triplets.into_iter().unzip();
     let (irows, icols): (Vec<usize>, Vec<usize>) = inds.into_iter().unzip();
     na::CsMatrix::<f32>::from_triplet(nrows, ncols, &irows[..], &icols[..], &vals[..])
 }
 
-
-/// Axis aligned bounding box.
-pub struct AABB {
-    dims: na::Vector3<f32>,
-    corner: na::Vector3<f32>
-}
-
-impl AABB {
-    /// Compute the trilinear weight within the box.
-    pub fn trilinear_weight(position: na::Vector3<f32>) -> f32 {
-        unimplemented!();
-    }
-
-    pub fn within(position: na::Vector3<f32>) -> bool {
-        unimplemented!();
-    }
-}
 
 #[cfg(test)]
 mod tests {
