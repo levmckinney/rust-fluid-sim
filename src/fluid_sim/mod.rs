@@ -27,7 +27,8 @@ impl Default for SimConfig {
             density: 1.225, // density of air in Kg per meter cubed
             grid: Grid {
                 dims: na::Vector3::new(1.0, 1.0, 1.0),
-                grid_shape: (2, 2, 2)
+                grid_shape: (2, 2, 2),
+                offset: na::Vector3::zeros()
             }
         }
     }
@@ -36,6 +37,8 @@ impl Default for SimConfig {
 pub struct FluidSim<T> where T: Force {
     dt: f32,
     mac_grid: MACGrid,
+    q: na::DVector<f32>,
+    p: na::DVector<f32>,
     pub particles: Particles,
     force: T
 }
@@ -48,11 +51,16 @@ impl<T> FluidSim <T> where T: Force{
     /// Returns:
     /// * A newly constructed fluid sim
     pub fn new(config: SimConfig, force: T) -> Self {
+        let mac_grid = MACGrid::new(&config.grid, config.density);
+        let q = na::DVector::zeros(mac_grid.get_q_size());
+        let p = na::DVector::zeros(mac_grid.get_p_size());
         Self {
             dt: config.delta_time,
-            mac_grid: MACGrid::new(&config.grid, config.density),
+            mac_grid,
             particles: Particles::filled(&config.grid),
-            force: force
+            force: force,
+            q,
+            p
         }
     }
 
@@ -72,10 +80,13 @@ impl<T> FluidSim <T> where T: Force{
     pub fn step(&mut self) {
         // TODO: Transfer particle velocities to grid
         self.particles.advect(self.dt);
-        self.particles.apply_force(&self.force, self.dt)
+        self.particles.apply_force(&self.force, self.dt);
+        self.mac_grid.set_from_particles(&mut self.q, &self.particles);
+        // TODO: pressure project
+        self.particles.update_using_pic(&self.mac_grid, &self.q);
     }
 
     pub fn get_grid(&self) -> Grid {
-        self.mac_grid.grid
+        self.mac_grid.base_grid
     }
 }

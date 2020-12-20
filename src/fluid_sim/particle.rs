@@ -1,6 +1,6 @@
-use super::mac_grid::{MACGrid};
+use super::mac_grid::{MACGrid, Component};
 use super::forces::Force;
-use super::utils::{Grid, AABB, clamp};
+use super::utils::{Grid};
 
 use std::iter;
 use rand::{thread_rng, Rng};
@@ -14,22 +14,30 @@ pub struct Particle {
     pub velocity: na::Vector3<f32>
 }
 
+/// Store particles on a sub grid which divides
+/// each cell of the simulation grid into 8 sub cells
 pub struct Particles {
-    pub grid: Grid,
-    pub particles: Vec<Vec<Vec<Vec<Particle>>>>
+    pub sub_grid: Grid,
+    particles: Vec<Vec<Vec<Vec<Particle>>>>
 }
 
 
 impl Particles {
+    // Public
+    /// Creates empty grid of particles
     pub fn new(grid: &Grid) -> Self {
+        let sub_grid = Grid {
+            grid_shape: (2*grid.grid_shape.0, 2*grid.grid_shape.1, 2*grid.grid_shape.1),
+            ..*grid
+        };
         let mut particles = Vec::new();
-        particles.reserve(grid.grid_shape.0);
-        for _ in 0..grid.grid_shape.0 {            
+        particles.reserve(sub_grid.grid_shape.0);
+        for _ in 0..sub_grid.grid_shape.0 {            
             let mut layer = Vec::new();
-            particles.reserve(grid.grid_shape.0);
-            for _ in 0..grid.grid_shape.1 {
+            particles.reserve(sub_grid.grid_shape.0);
+            for _ in 0..sub_grid.grid_shape.1 {
                 let mut col = Vec::new();
-                for _ in 0..grid.grid_shape.2 {
+                for _ in 0..sub_grid.grid_shape.2 {
                     let cell = Vec::new();
                     col.push(cell);
                 }
@@ -39,7 +47,7 @@ impl Particles {
         }
 
         Particles {
-            grid: *grid, 
+            sub_grid: sub_grid, 
             particles: particles
         }
     }
@@ -48,52 +56,128 @@ impl Particles {
     /// the flip paper i.e. every cell has 8 particles which are randomly positioned within
     /// their respective sub cells.
     pub fn filled(grid: &Grid) -> Self {
-        let Grid {dims, grid_shape} = grid;
-        let cell_size = na::Vector3::<f32>::new(
-            dims[0]/(grid_shape.0 as f32), 
-            dims[1]/(grid_shape.1 as f32), 
-            dims[2]/(grid_shape.2 as f32));
-        let sub_cell_size = cell_size/2.0;
         let mut particles = Particles::new(&grid);
+        let cell_size = grid.cell_size();
         let mut rng = thread_rng();
         let uniform = Uniform::new(0.0, 1.0);
-        for (i, j, k) in grid.cells() {
-            let cell_pos = na::Vector3::<f32>::new(
-                cell_size[0]*(i as f32),
-                cell_size[1]*(j as f32),
-                cell_size[2]*(k as f32));
-            for (i_sub, j_sub, k_sub) in iproduct!(0..2, 0..2, 0..2) {
-                let sub_cell_pos = na::Vector3::<f32>::new(
-                    sub_cell_size[0]*(i_sub as f32),
-                    sub_cell_size[1]*(j_sub as f32),
-                    sub_cell_size[2]*(k_sub as f32));
-                let jitter = na::Vector3::<f32>::new(
-                    uniform.sample(&mut rng)*sub_cell_size[0],
-                    uniform.sample(&mut rng)*sub_cell_size[1],
-                    uniform.sample(&mut rng)*sub_cell_size[2]
-                );
-                particles.particles[i][j][k].push(Particle {
-                    position: cell_pos + sub_cell_pos + jitter,
-                    velocity: na::Vector3::<f32>::new(0.0, 0.0, 0.0),
-                })
-            }
+        for (i, j, k) in particles.sub_grid.cells() {
+            let sub_cell_pos = particles.sub_grid.get_position(i, j, k);
+            let jitter = na::Vector3::<f32>::new(
+                uniform.sample(&mut rng)*cell_size[0],
+                uniform.sample(&mut rng)*cell_size[1],
+                uniform.sample(&mut rng)*cell_size[2]
+            );
+            particles.particles[i][j][k].push(Particle {
+                position: sub_cell_pos + jitter,
+                velocity: na::Vector3::<f32>::new(0.0, 0.0, 0.0),
+            })
         }
         particles
     }
+    
+    /// Update the particles positions using forward euler.
+    pub fn advect(&mut self, dt: f32) {
+        for (i, j, k) in self.sub_grid.cells() {
+            for particle in &mut self.particles[i][j][k] {
+                particle.position += particle.velocity*dt;
+            }
+        }
+        self.fix_particles();
+    }
 
+    /// # Arguments
+    /// * mac_grid - a mac grid representing static grid.
+    /// * q - the generalized velocities of the grid
+    /// # Results
+    /// * Updates the particles velocities using the pic method.
+    pub fn update_using_pic(&mut self, mac_grid: &MACGrid, q: &na::DVector<f32>) {
+        for (i, j, k) in self.sub_grid.cells() {
+            for comp in Component::iterator() {
+                let comp_grid = mac_grid.get_vel_grid(comp);
+                let enclosing_grid_cell = match comp {
+                    Component::U => ((i + 1)/2, j/2, k/2),
+                    Component::V => (i/2, (j + 1)/2, k/2),
+                    Component::W => (i/2, j/2, (k + 1)/2)
+                };
+                
+                let corners = iproduct!(0..2, 0..2, 0..2).map(|c|
+                    (enclosing_grid_cell.0 + c.0, enclosing_grid_cell.1 + c.1, enclosing_grid_cell.2 + c.2)
+                ).collect::<Vec<(usize, usize, usize)>>();
+                // Now we linearly interpolate from the corners to find the velocity at the particles position
+                // within the grid cell.
+                for particle in &mut self.particles[i][j][k] {
+                    let mut velocity = 0.0;
+                    for corner in &corners {
+                        let weight = comp_grid.bilinear_weight(corner, &particle.position);
+                        let vel_component = q[mac_grid.get_vel_ind(comp, corner.0, corner.1, corner.2)];
+                        velocity += weight*vel_component
+                    }
+                    match comp {
+                        Component::U => {
+                            particle.velocity[0] = velocity;
+                        }
+                        Component::V => {
+                            particle.velocity[1] = velocity;
+                        }
+                        Component::W => {
+                            particle.velocity[2] = velocity;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// # Arguments
+    /// * `force` - force that can be sampled at each particle
+    /// Apply external force to all particles using forward euler.
+    pub fn apply_force<T>(&mut self, force: &T, dt: f32) where T: Force{
+        for (i, j, k) in self.sub_grid.cells() {
+            for particle in &mut self.particles[i][j][k] {
+                particle.velocity += dt*force.get_force(particle);
+            }
+        }
+    }
+
+    /// # Arguments:
+    /// * `min` - minimum extent of the sub grid we want to sample
+    /// * `max` - maximum extent of the sub grid we want to sample
+    /// # Returns:
+    /// * A Vector contain all particles within the grid bounded by max and min inclusive
+    pub fn get_particles_within(&self, min: (usize, usize, usize), max: (usize, usize, usize)) -> Vec::<&Particle> {
+        let min = self.sub_grid.clamp_inds(min.0, min.1, min.2);
+        let max = self.sub_grid.clamp_inds(max.0, max.1, max.2);
+
+        let mut particles_within = Vec::new();
+
+        for (i, j, k) in iproduct!(min.0..(max.0 + 1), min.1..(max.1 + 1), min.2..(max.2 + 1)) {
+            // TODO remove extra assert
+            for particle in &self.particles[i][j][k] {
+                debug_assert_eq!(self.sub_grid.get_containing_cell_ind(&particle.position), (i, j, k), "Particle out of proper sub grid cell!")
+            }
+            particles_within.extend(&self.particles[i][j][k]);
+        }
+        particles_within
+    }
+
+
+    /// # Returns
+    /// * A vector containing a copy of every particle in the particle grid
+    pub fn get_particles(&self) -> Vec::<Particle> {
+        let mut particle_vec = Vec::new();
+        for (i,j,k) in self.sub_grid.cells() {
+            particle_vec.extend((*self.particles[i][j][k]).into_iter().cloned());
+        }
+        particle_vec
+    }
+
+    // Private
     // Ensure that all particles are within there respective grid cells
     fn fix_particles(&mut self) {
         let mut out_of_cells = Vec::<Particle>::new();
-        let cell_size = self.grid.cell_size();
-        for (i, j, k) in self.grid.cells() {
-            let corner1 = na::Vector3::<f32>::new(
-                cell_size[0]*(i as f32),
-                cell_size[1]*(j as f32),
-                cell_size[2]*(k as f32));
-            let corner2 = na::Vector3::<f32>::new(
-                cell_size[0]*((i + 1) as f32),
-                cell_size[1]*((j + 1) as f32),
-                cell_size[2]*((k + 1) as f32));
+        for (i, j, k) in self.sub_grid.cells() {
+            let corner1 = self.sub_grid.get_position(i, j, k);
+            let corner2 = self.sub_grid.get_position(i+1, j+1, k+1);
             // Split the particles in this cell into particles that are supposed to be in this cell and those that are not.
             let mut in_cell= Vec::new();
             for particle in &self.particles[i][j][k] {
@@ -105,56 +189,17 @@ impl Particles {
             }
             self.particles[i][j][k] = in_cell;
         }
-        // Place particles that lay outside of there cells into their place.
-        let zero =  na::Vector3::<f32>::new(0.0, 0.0, 0.0);
+        // Place particles that lay outside of their cells into their place.
         for particle in out_of_cells {
-            let clamped_position = clamp(particle.position, zero, self.grid.dims);
-            let (i, j, k) = (
-                (clamped_position[0] / cell_size[0]) as usize,
-                (clamped_position[1] / cell_size[1]) as usize,
-                (clamped_position[2] / cell_size[2]) as usize);
-            assert!(self.grid.within(i, j, k));
+            let (i, j, k) = self.sub_grid.get_containing_cell_ind(&particle.position);
             self.particles[i][j][k].push(
-                Particle {position: clamped_position, velocity: particle.velocity}
+                Particle {position: self.sub_grid.clamp(&particle.position), velocity: particle.velocity}
             );
         }
-    }
-
-    /// Update the particles positions using advection
-    pub fn advect(&mut self, dt: f32) {
-        for (i, j, k) in self.grid.cells() {
-            for particle in &mut self.particles[i][j][k] {
-                particle.position += particle.velocity;
-            }
-        }
-
-        self.fix_particles();
-    }
-
-    /// Update the particles velocities using flip.
-    pub fn update_using_flip(&mut self, mac_grid: &MACGrid) {
-        unimplemented!();
-    }
-
-    /// Apply external force to all particles using forward euler.
-    pub fn apply_force<T>(&mut self, force: &T, dt: f32) where T: Force{
-        for (i, j, k) in self.grid.cells() {
-            for particle in &mut self.particles[i][j][k] {
-                particle.velocity += dt*force.get_force(particle);
-            }
-        }
-    }
-
-    pub fn get_particles_within(aabb: AABB) -> Vec<Particle> {
-        unimplemented!();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    #[test]
-    fn test_vec_comp() {
-        assert_eq!(na::Vector3::new(0.0, 0.0, 0.0) < na::Vector3::new(1.0, 1.0, 1.0), true)
-    }
+
 }

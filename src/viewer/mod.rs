@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use crate::fluid_sim::{FluidSim, SimConfig};
-use crate::fluid_sim::forces::ConstantForce;
+use crate::fluid_sim::forces::SphereForce;
 use nalgebra as na;
 
 
@@ -22,7 +22,11 @@ pub struct FluidSimViewer {
 impl Plugin for FluidSimViewer {
     fn build(&self, app: &mut AppBuilder) {
         // add things to your app here
-        app.add_resource(FluidSim::new(self.config, ConstantForce {force: na::Vector3::new(0.0, -0.00098, 0.0)}))
+        app.add_resource(FluidSim::new(self.config, SphereForce{
+                center: na::Vector3::zeros(),
+                radius: 1.0,
+                force: na::Vector3::new(0.0, 1000.0, 0.0)
+            }))
            .add_startup_system(setup.system())
            .add_system(rotate_camera.system())
            .add_system(update_view_particles.system());
@@ -35,7 +39,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    fluid_sim: Res<FluidSim<ConstantForce>>
+    fluid_sim: Res<FluidSim<SphereForce>>
     ) {
     // add entities to the world
     commands
@@ -47,7 +51,7 @@ fn setup(
         })
         // cube
         .spawn(PbrComponents {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: fluid_sim.get_grid().dims.max() })),
+            mesh: meshes.add(Mesh::from(shape::Cube { size: fluid_sim.get_grid().dims.max()/2.0 })),
             material: materials.add(StandardMaterial {shaded:true, albedo: Color::rgba(1.0,1.0,1.0,0.1) ,..Default::default()}),
             transform: Transform::from_translation(to_glam(fluid_sim.get_grid().dims*0.5)),
             draw: Draw {
@@ -111,21 +115,16 @@ fn rotate_camera(time: Res<Time>,
 }
 
 fn update_view_particles(time: Res<Time>, 
-                    mut fluid_sim: ResMut<FluidSim<ConstantForce>>, 
-                    mut particles: Query<(&ViewParticle, &mut Transform)>) {
+                    mut fluid_sim: ResMut<FluidSim<SphereForce>>, 
+                    mut view_particles: Query<(&ViewParticle, &mut Transform)>) {
     fluid_sim.step();
-    let mut vis_parts = particles.iter_mut();
-    for (i, j, k) in fluid_sim.get_grid().cells() {
-        for particle in &fluid_sim.particles.particles[i][j][k] {
-            let vis_part = vis_parts.next();
-            if vis_part.is_some() {
-                let (_, mut particle_trans) = vis_part.unwrap();
-                *particle_trans.translation.x_mut() = particle.position[0];
-                *particle_trans.translation.y_mut() = particle.position[1];
-                *particle_trans.translation.z_mut() = particle.position[2];        
-            } else {
-                return;
-            }
-        }
+    let sim_particles = fluid_sim.particles.get_particles();
+    println!("time elapsed {:?}", time.delta_seconds);
+    for (mut view_particle, sim_particle) in view_particles.iter_mut().zip(sim_particles.into_iter()) {
+        let (_, mut particle_trans) = view_particle;
+        *particle_trans.translation.x_mut() = sim_particle.position[0];
+        *particle_trans.translation.y_mut() = sim_particle.position[1];
+        *particle_trans.translation.z_mut() = sim_particle.position[2];        
     }
+    
 }
