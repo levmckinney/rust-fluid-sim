@@ -1,7 +1,11 @@
 use super::particle::{Particle, Particles};
 use super::utils::{sum_from_triplets, Triplets, Grid};
-use nalgebra::base::dimension::{U6, U7};
 use std::slice::Iter;
+
+use rayon::iter::ParallelBridge;
+use rayon::prelude::ParallelIterator;
+use std::sync::mpsc::channel;
+use nalgebra::base::dimension::{U6, U7};
 use nalgebra as na;
 
 #[derive(Debug)]
@@ -20,11 +24,10 @@ impl Component {
 
 pub struct MACGrid {
     pub base_grid: Grid,
-    u_grid: Grid,
-    v_grid: Grid,
-    w_grid: Grid,
-    p_grid: Grid,
-    pub density: f32,
+    pub u_grid: Grid,
+    pub v_grid: Grid,
+    pub w_grid: Grid,
+    pub p_grid: Grid,
 }
 
 impl MACGrid {
@@ -58,7 +61,6 @@ impl MACGrid {
             v_grid,
             w_grid, 
             p_grid,
-            density
         }
     }
 
@@ -140,60 +142,77 @@ impl MACGrid {
     }
 
     /// Assembles the global divergence operator matrix.
-    pub fn div_velocity_operator(&self) -> na::CsMatrix<f32> {
+    pub fn div_velocity_operator(&self, velocity_vec: &na::DVector<f32>) -> na::DVector<f32> {
         let div_op_local = self.div_operator_local();
-        let mut triplets = Vec::new();
-        for (row, (_i, _j, _k)) in self.p_grid.cells().enumerate() {
-            if self.is_boundary_pressure(_i, _j, _k) {
-                continue;
-            }
-            // Move from working with indices over the pressure grid to
-            // indices over the base grid.
-            let (i, j, k) = (_i-1, _j-1, _k-1);
-            let boundary_filter = self.get_boundary_filter(i, j, k);
-            let velocity_grid_inds = self.get_local_velocity_inds(i, j, k);
-            // Convert the indices over velocity grids to indices
-            // into the generalized velocity vector.
-            let velocity_vector_inds = velocity_grid_inds.iter().map(|(comp, i, j, k)| 
-                self.get_velocity_ind(comp, *i, *j, *k));
-
-            let operator = div_op_local*boundary_filter;
-
-            triplets.extend(
-                velocity_vector_inds.zip(operator.iter()).map(|(vel_ind, value)|
-                    ((row, vel_ind), *value)));
-        }
-        sum_from_triplets(self.get_pressure_size(), self.get_velocity_size(), triplets)
+        na::DVector::from_iterator(self.get_pressure_size(), 
+            self.p_grid.cells().map(|(_i, _j, _k)| {
+                if self.is_boundary_pressure(_i, _j, _k) {
+                    return 0.0;
+                }
+                // Move from working with indices over the pressure grid to
+                // indices over the base grid.
+                let (i, j, k) = (_i-1, _j-1, _k-1);
+                let boundary_filter = self.get_boundary_filter(i, j, k);
+                let velocity_grid_inds = self.get_local_velocity_inds(i, j, k);
+                // Convert the indices over velocity grids to indices
+                // into the generalized velocity vector.
+                let velocity_vector_inds = velocity_grid_inds.iter().map(|(comp, i, j, k)| 
+                    self.get_velocity_ind(comp, *i, *j, *k));
+                let local_velocities = na::Vector6::<f32>::from_iterator(
+                    velocity_vector_inds.map(|l| velocity_vec[l]));
+                //println!("div_op_local {} \n boundary filter {} \n local velocities {}", div_op_local, boundary_filter, local_velocities);
+                (div_op_local*boundary_filter*local_velocities)[0]}))
     }
 
     /// Returns global divergence of grad of pressure operator.
-    pub fn div_grad_pressure_operator(&self) -> na::CsMatrix<f32>{
+    pub fn div_grad_pressure(&self, pressure_vec: &na::DVector<f32>) -> na::DVector<f32> {
         let div_op_local = self.div_operator_local();
         let grad_op_local = self.grad_operator_local();
-        let mut triplets = Vec::new();
-        for (row, (i, j, k)) in self.p_grid.cells().enumerate() {
-            if self.is_boundary_pressure(i, j, k) {
-                continue;
-            }
-            let pressure_grid_inds = self.get_local_pressure_inds(i, j, k);
-            // Subtract one here because get_boundary_filter takes inds over 
-            // the base grid.
-            let boundary_filter = self.get_boundary_filter(i - 1, j - 1, k - 1);
-            // Convert indices over the pressure grid to indices over the
-            // the pressure vector
-            let pressure_vector_inds = pressure_grid_inds.iter().map(|(i, j, k)| 
-                self.get_pressure_ind(*i, *j, *k));
-
-            let operator = div_op_local*boundary_filter*grad_op_local;
-
-            triplets.extend(
-                pressure_vector_inds.zip(operator.into_iter()).map(|(pressure_ind, value)|
-                    ((row, pressure_ind), *value)));
-        }
-        sum_from_triplets(self.get_pressure_size(), self.get_pressure_size(), triplets)
+        na::DVector::from_iterator(self.p_grid.num_cells(), 
+            self.p_grid.cells().map(|(i, j, k)| {
+                if self.is_boundary_pressure(i, j, k) {
+                    return 0.0;
+                }
+                let boundary_filter = self.get_boundary_filter(i - 1, j - 1, k - 1);                
+                // Create the local pressure vector
+                let local_pressures = self.get_local_pressures(pressure_vec, i, j, k);
+                // Return the result of multiplying this row in the sparse matrix
+                (div_op_local*boundary_filter*grad_op_local*local_pressures)[0]
+            }))
     }
     
+    pub fn grad_pressure(&self, pressure_vec: &na::DVector<f32>) -> na::DVector<f32> {
+        let grad_op_local = self.grad_operator_local();
+        let mut grad_pressure = na::DVector::zeros(self.get_velocity_size());
+        for (i, j, k) in self.base_grid.cells() {
+            let boundary_filter = self.get_boundary_filter(i, j, k);
+            let local_pressures = self.get_local_pressures(pressure_vec, i + 1, j + 1, k + 1) ;
+            let local_grad_pressure = boundary_filter*grad_op_local*local_pressures;
+            let velocity_grid_inds = self.get_local_velocity_inds(i, j, k);
+            let velocity_vector_inds = velocity_grid_inds.iter().map(|(comp, i, j, k)| 
+                self.get_velocity_ind(comp, *i, *j, *k));
+            for (value, l) in local_grad_pressure.into_iter().zip(velocity_vector_inds) {
+                // We need to divide by 2 here to avoid double counting the pressure gradient.
+                // Every velocity component appearers twice in this sum because all velocities that
+                // are not on the boundary are local velocities to two grid cells. 
+                grad_pressure[l] += value/2.0;
+            }
+        }
+        grad_pressure
+    }
+
     //Private methods
+    /// Takes indices over the pressure grid.
+    /// returns local pressure vector
+    fn get_local_pressures(&self, pressure_vec: &na::DVector<f32>, i: usize, j: usize, k: usize) -> na::VectorN<f32, U7> {
+        let pressure_grid_inds = self.get_local_pressure_inds(i, j, k);
+        let pressure_vector_inds = pressure_grid_inds.iter().map(|(i, j, k)|
+            self.get_pressure_ind(*i, *j, *k));        
+        // Create the local pressure vector
+        na::VectorN::<f32, U7>::from_iterator(
+            pressure_vector_inds.map(|l| pressure_vec[l]))
+    }
+
     /// Returns weather velocity component c at position i, j, k is on or outside the boundary.
     fn is_boundary_velocity(&self, c: &Component, i: usize, j: usize, k: usize) -> bool {
         let comp_grid = self.get_velocity_grid(c);
@@ -248,7 +267,7 @@ impl MACGrid {
     fn get_boundary_filter(&self, i: usize, j: usize, k: usize) -> na::Matrix6<f32> {
         let not_on_boundary = na::Vector6::<f32>::from_iterator(
             self.get_local_velocity_inds(i, j, k).iter().map(|(comp, _i, _j, _k)|
-                if self.is_boundary_velocity(comp, *_i, *_j, *_k) {1.0} else {0.0}));
+                if self.is_boundary_velocity(comp, *_i, *_j, *_k) {0.0} else {1.0}));
         na::Matrix6::from_diagonal(&not_on_boundary)
     }
 

@@ -89,7 +89,7 @@ impl Particles {
     /// * q - the generalized velocities of the grid
     /// # Results
     /// * Updates the particles velocities using the pic method.
-    pub fn update_using_pic(&mut self, mac_grid: &MACGrid, q: &na::DVector<f32>) {
+    pub fn update_using_pic(&mut self, mac_grid: &MACGrid, velocity_vec: &na::DVector<f32>) {
         for (i, j, k) in self.sub_grid.cells() {
             for comp in Component::iterator() {
                 let comp_grid = mac_grid.get_velocity_grid(comp);
@@ -106,11 +106,14 @@ impl Particles {
                 // within the grid cell.
                 for particle in &mut self.particles[i][j][k] {
                     let mut velocity = 0.0;
+                    let mut sum = 0.0;
                     for corner in &corners {
                         let weight = comp_grid.bilinear_weight(corner, &particle.position);
-                        let vel_component = q[mac_grid.get_velocity_ind(comp, corner.0, corner.1, corner.2)];
+                        let vel_component = velocity_vec[mac_grid.get_velocity_ind(comp, corner.0, corner.1, corner.2)];
+                        sum += weight;
                         velocity += weight*vel_component
                     }
+                    velocity /= sum;
                     match comp {
                         Component::U => {
                             particle.velocity[0] = velocity;

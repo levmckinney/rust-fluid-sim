@@ -18,6 +18,4 @@ fn main() {
             config: SimConfig::default(),
         })
         .run();
-    let mut fluid_sim = FluidSim::<ConstantForce>::new(SimConfig::default(), ConstantForce{ force: na::Vector3::new(0.0, -0.00098, 0.0)});
-    fluid_sim.step();
 }
