@@ -2,20 +2,20 @@ use nalgebra as na;
 
 #[derive(Copy, Clone)]
 pub struct Grid {
-    pub offset: na::Vector3<f32>,
-    pub dims: na::Vector3<f32>,
+    pub offset: na::Vector3<f64>,
+    pub dims: na::Vector3<f64>,
     pub grid_shape: (usize, usize, usize), // Shape of the grid
 }
 
 impl Grid {
-    pub fn new(offset: na::Vector3<f32>, cell_size: na::Vector3<f32>, grid_shape: (usize, usize, usize)) -> Self {
+    pub fn new(offset: na::Vector3<f64>, cell_size: na::Vector3<f64>, grid_shape: (usize, usize, usize)) -> Self {
         Grid {
             offset,
             grid_shape,
             dims: na::Vector3::new(
-                cell_size[0]*(grid_shape.0 as f32),
-                cell_size[1]*(grid_shape.1 as f32),
-                cell_size[2]*(grid_shape.2 as f32))
+                cell_size[0]*(grid_shape.0 as f64),
+                cell_size[1]*(grid_shape.1 as f64),
+                cell_size[2]*(grid_shape.2 as f64))
         }
     }
 
@@ -24,11 +24,11 @@ impl Grid {
         iproduct!(0..grid_shape.0, 0..grid_shape.1, 0..grid_shape.2)
     }
 
-    pub fn cell_size(&self) -> na::Vector3::<f32> {
-        na::Vector3::<f32>::new(
-            self.dims[0]/(self.grid_shape.0 as f32), 
-            self.dims[1]/(self.grid_shape.1 as f32), 
-            self.dims[2]/(self.grid_shape.2 as f32))
+    pub fn cell_size(&self) -> na::Vector3::<f64> {
+        na::Vector3::<f64>::new(
+            self.dims[0]/(self.grid_shape.0 as f64), 
+            self.dims[1]/(self.grid_shape.1 as f64), 
+            self.dims[2]/(self.grid_shape.2 as f64))
     }
 
     pub fn clamp_inds(&self, i: usize, j:usize, k: usize) -> (usize, usize, usize) {
@@ -38,7 +38,7 @@ impl Grid {
     }
 
     /// Clamp a position to be with the grid.
-    pub fn clamp(&self, position: &na::Vector3<f32>) -> na::Vector3<f32> {
+    pub fn clamp(&self, position: &na::Vector3<f64>) -> na::Vector3<f64> {
         let epsilon = self.cell_size()*0.01;
         na::Vector3::new(
             na::clamp(position[0], self.offset[0], self.offset[0] + self.dims[0] - epsilon[0]),
@@ -48,7 +48,7 @@ impl Grid {
     
     /// Get the cell at a position within the grid.
     /// Positions outside the grid will be clamped to be within the grid first.
-    pub fn get_containing_cell_ind(&self, position: &na::Vector3<f32>) -> (usize, usize, usize) {
+    pub fn get_containing_cell_ind(&self, position: &na::Vector3<f64>) -> (usize, usize, usize) {
         let cell_size = self.cell_size();
         let clamped_centered = self.clamp(position) - self.offset;
         let (i,  j,  k) = (
@@ -64,12 +64,12 @@ impl Grid {
     }
 
     /// Get position
-    pub fn get_position(&self, i: usize, j: usize, k: usize) -> na::Vector3<f32> {
+    pub fn get_position(&self, i: usize, j: usize, k: usize) -> na::Vector3<f64> {
         let cell_size = self.cell_size();
-        let centered = na::Vector3::<f32>::new(
-            (i as f32)*cell_size[0], 
-            (j as f32)*cell_size[1], 
-            (k as f32)*cell_size[2]);
+        let centered = na::Vector3::<f64>::new(
+            (i as f64)*cell_size[0], 
+            (j as f64)*cell_size[1], 
+            (k as f64)*cell_size[2]);
         self.offset + centered
     }
 
@@ -91,7 +91,7 @@ impl Grid {
         ind
     }
 
-    pub fn bilinear_weight(&self, cell_ind: &(usize, usize, usize), position: &na::Vector3<f32>) -> f32 {
+    pub fn bilinear_weight(&self, cell_ind: &(usize, usize, usize), position: &na::Vector3<f64>) -> f64 {
         let cell_size = self.cell_size();
         let pos_ind = self.get_containing_cell_ind(position);
         let diff = position - self.get_position(pos_ind.0, pos_ind.1, pos_ind.2) ;
@@ -121,7 +121,7 @@ impl Grid {
     }
 }
 
-pub type Triplet = ((usize, usize), f32);
+pub type Triplet = ((usize, usize), f64);
 pub type Triplets = Vec<Triplet>;
 
 fn sum_duplicate_triplets(triplets: Triplets) -> Triplets {
@@ -153,14 +153,14 @@ fn sum_duplicate_triplets(triplets: Triplets) -> Triplets {
 
 /// Create sparse matrix from triplets. 
 /// Sum duplicate entries.
-pub fn sum_from_triplets(nrows: usize, ncols: usize, triplets: Triplets) -> na::CsMatrix<f32> {
+pub fn sum_from_triplets(nrows: usize, ncols: usize, triplets: Triplets) -> na::CsMatrix<f64> {
     let deduped_triplets = sum_duplicate_triplets(triplets);
     for ((i, j), _) in &deduped_triplets {
         assert!(*i < nrows && *j < ncols, "i: {:?}, j:{:?}, nrows: {:?} ncols: {:?}", i, j, nrows, ncols);
     }
-    let (inds, vals): (Vec<(usize, usize)>, Vec<f32>) = deduped_triplets.into_iter().unzip();
+    let (inds, vals): (Vec<(usize, usize)>, Vec<f64>) = deduped_triplets.into_iter().unzip();
     let (irows, icols): (Vec<usize>, Vec<usize>) = inds.into_iter().unzip();
-    na::CsMatrix::<f32>::from_triplet(nrows, ncols, &irows[..], &icols[..], &vals[..])
+    na::CsMatrix::<f64>::from_triplet(nrows, ncols, &irows[..], &icols[..], &vals[..])
 }
 
 

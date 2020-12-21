@@ -16,8 +16,8 @@ use nalgebra as na;
 /// Note that all sim volumes start from 0, 0, 0.
 #[derive(Clone, Copy)]
 pub struct SimConfig {
-    delta_time: f32,
-    density: f32,
+    delta_time: f64,
+    density: f64,
     grid: Grid
 }
 
@@ -36,11 +36,11 @@ impl Default for SimConfig {
 }
 
 pub struct FluidSim<T> where T: Force {
-    dt: f32,
-    density: f32,
+    dt: f64,
+    density: f64,
     pub mac_grid: MACGrid,
-    pub velocity: na::DVector<f32>,
-    pub pressure: na::DVector<f32>,
+    pub velocity: na::DVector<f64>,
+    pub pressure: na::DVector<f64>,
     pub particles: Particles,
     external_force: T
 }
@@ -74,15 +74,19 @@ impl<T> FluidSim <T> where T: Force {
         self.particles.advect(self.dt);
         self.particles.apply_force(&self.external_force, self.dt);
         self.mac_grid.set_from_particles(&mut self.velocity, &self.particles);
-        //println!("velocity {}", self.velocity.norm());
+        println!("velocity {}", self.velocity.norm());
         let d = (self.density/self.dt)*self.mac_grid.div_velocity_operator(&self.velocity);
-        //println!("div velocity {}", d.norm());
-        self.pressure = conjugate_gradient(
+        println!("div velocity {}", d.norm());
+        let new_pressure = conjugate_gradient(
             &self.mac_grid,
-            &na::DVector::zeros(self.mac_grid.get_pressure_size()),
+            &self.pressure,
             &d,
-            1.0e-8,
+            1.0e-10,
             1000);
+        if self.pressure.iter().all(|f| !f.is_nan()) {
+            self.pressure = new_pressure;
+        }
+        println!("max velocity {}", self.velocity.abs().max());
         self.velocity -= (self.dt/self.density)*self.mac_grid.grad_pressure(&self.pressure);
         self.particles.update_using_pic(&self.mac_grid, &self.velocity);
     }

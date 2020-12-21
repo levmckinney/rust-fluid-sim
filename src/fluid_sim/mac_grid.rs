@@ -31,7 +31,7 @@ pub struct MACGrid {
 }
 
 impl MACGrid {
-    pub fn new(grid: &Grid, density: f32) -> Self {
+    pub fn new(grid: &Grid, density: f64) -> Self {
         let Grid {dims, grid_shape, offset} = grid;
         let cell_size = grid.cell_size();
         let u_grid = Grid::new(
@@ -98,7 +98,7 @@ impl MACGrid {
         self.p_grid.flat_ind(i, j, k)
     }
 
-    pub fn set_from_particles(&self, q: &mut na::DVector<f32>, particles: &Particles){
+    pub fn set_from_particles(&self, q: &mut na::DVector<f64>, particles: &Particles){
         for comp in Component::iterator() {
             let comp_grid = self.get_velocity_grid(comp);
             for (i, j, k) in comp_grid.cells() {
@@ -122,7 +122,7 @@ impl MACGrid {
                         (sub_grid_ind.0 + 1, sub_grid_ind.1 + 1, sub_grid_ind.2 + 1)
                     );
                     // Get weighted average of nearby particles velocity components.
-                    let mut sum = 0.0;
+                    let mut sum = 0.001;
                     for particle in particles_nearby {
                         let particle_velocity_comp = match comp {
                             Component::U => particle.velocity[0],
@@ -142,7 +142,7 @@ impl MACGrid {
     }
 
     /// Assembles the global divergence operator matrix.
-    pub fn div_velocity_operator(&self, velocity_vec: &na::DVector<f32>) -> na::DVector<f32> {
+    pub fn div_velocity_operator(&self, velocity_vec: &na::DVector<f64>) -> na::DVector<f64> {
         let div_op_local = self.div_operator_local();
         na::DVector::from_iterator(self.get_pressure_size(), 
             self.p_grid.cells().map(|(_i, _j, _k)| {
@@ -158,14 +158,14 @@ impl MACGrid {
                 // into the generalized velocity vector.
                 let velocity_vector_inds = velocity_grid_inds.iter().map(|(comp, i, j, k)| 
                     self.get_velocity_ind(comp, *i, *j, *k));
-                let local_velocities = na::Vector6::<f32>::from_iterator(
+                let local_velocities = na::Vector6::<f64>::from_iterator(
                     velocity_vector_inds.map(|l| velocity_vec[l]));
                 //println!("div_op_local {} \n boundary filter {} \n local velocities {}", div_op_local, boundary_filter, local_velocities);
                 (div_op_local*boundary_filter*local_velocities)[0]}))
     }
 
     /// Returns global divergence of grad of pressure operator.
-    pub fn div_grad_pressure(&self, pressure_vec: &na::DVector<f32>) -> na::DVector<f32> {
+    pub fn div_grad_pressure(&self, pressure_vec: &na::DVector<f64>) -> na::DVector<f64> {
         let div_op_local = self.div_operator_local();
         let grad_op_local = self.grad_operator_local();
         na::DVector::from_iterator(self.p_grid.num_cells(), 
@@ -181,7 +181,7 @@ impl MACGrid {
             }))
     }
     
-    pub fn grad_pressure(&self, pressure_vec: &na::DVector<f32>) -> na::DVector<f32> {
+    pub fn grad_pressure(&self, pressure_vec: &na::DVector<f64>) -> na::DVector<f64> {
         let grad_op_local = self.grad_operator_local();
         let mut grad_pressure = na::DVector::zeros(self.get_velocity_size());
         for (i, j, k) in self.base_grid.cells() {
@@ -204,12 +204,12 @@ impl MACGrid {
     //Private methods
     /// Takes indices over the pressure grid.
     /// returns local pressure vector
-    fn get_local_pressures(&self, pressure_vec: &na::DVector<f32>, i: usize, j: usize, k: usize) -> na::VectorN<f32, U7> {
+    fn get_local_pressures(&self, pressure_vec: &na::DVector<f64>, i: usize, j: usize, k: usize) -> na::VectorN<f64, U7> {
         let pressure_grid_inds = self.get_local_pressure_inds(i, j, k);
         let pressure_vector_inds = pressure_grid_inds.iter().map(|(i, j, k)|
             self.get_pressure_ind(*i, *j, *k));        
         // Create the local pressure vector
-        na::VectorN::<f32, U7>::from_iterator(
+        na::VectorN::<f64, U7>::from_iterator(
             pressure_vector_inds.map(|l| pressure_vec[l]))
     }
 
@@ -225,7 +225,7 @@ impl MACGrid {
     }
 
     // Useful latter for implementing constant flow boundary condition.
-    fn boundary_velocity(&self, c: &Component, i: usize, j:usize, k: usize) -> f32 {
+    fn boundary_velocity(&self, c: &Component, i: usize, j:usize, k: usize) -> f64 {
         0.0
     }
 
@@ -264,15 +264,15 @@ impl MACGrid {
     }
 
     /// Returns the boundary filter for the cell at position 
-    fn get_boundary_filter(&self, i: usize, j: usize, k: usize) -> na::Matrix6<f32> {
-        let not_on_boundary = na::Vector6::<f32>::from_iterator(
+    fn get_boundary_filter(&self, i: usize, j: usize, k: usize) -> na::Matrix6<f64> {
+        let not_on_boundary = na::Vector6::<f64>::from_iterator(
             self.get_local_velocity_inds(i, j, k).iter().map(|(comp, _i, _j, _k)|
                 if self.is_boundary_velocity(comp, *_i, *_j, *_k) {0.0} else {1.0}));
         na::Matrix6::from_diagonal(&not_on_boundary)
     }
 
     /// Returns local div operator
-    fn div_operator_local(&self) -> na::Matrix1x6<f32> {
+    fn div_operator_local(&self) -> na::Matrix1x6<f64> {
         let delta = self.base_grid.cell_size();
         na::Matrix1x6::new(
             -1.0/delta[0], 1.0/delta[0], -1.0/delta[1], 1.0/delta[1], -1.0/delta[2], 1.0/delta[2] 
@@ -280,9 +280,9 @@ impl MACGrid {
     }
 
     // return the local divergence of gradient operator
-    fn grad_operator_local(&self) -> na::MatrixMN<f32, U6, U7> {
+    fn grad_operator_local(&self) -> na::MatrixMN<f64, U6, U7> {
         let delta = self.base_grid.cell_size();
-        let mut grad_op = na::MatrixMN::<f32, U6, U7>::zeros();
+        let mut grad_op = na::MatrixMN::<f64, U6, U7>::zeros();
         grad_op[(0, 0)] = 1.0/delta[0]; grad_op[(0, 1)] = -1.0/delta[0];
         grad_op[(1, 0)] = -1.0/delta[0]; grad_op[(1, 2)] = 1.0/delta[0];
         grad_op[(2, 0)] = 1.0/delta[1]; grad_op[(2, 3)] = -1.0/delta[1];

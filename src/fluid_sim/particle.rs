@@ -9,8 +9,8 @@ use nalgebra as na;
 
 #[derive(Clone, Copy)]
 pub struct Particle {
-    pub position: na::Vector3<f32>,
-    pub velocity: na::Vector3<f32>
+    pub position: na::Vector3<f64>,
+    pub velocity: na::Vector3<f64>
 }
 
 /// Store particles on a sub grid which divides
@@ -61,21 +61,21 @@ impl Particles {
         let uniform = Uniform::new(0.0, 1.0);
         for (i, j, k) in particles.sub_grid.cells() {
             let sub_cell_pos = particles.sub_grid.get_position(i, j, k);
-            let jitter = na::Vector3::<f32>::new(
+            let jitter = na::Vector3::<f64>::new(
                 uniform.sample(&mut rng)*cell_size[0],
                 uniform.sample(&mut rng)*cell_size[1],
                 uniform.sample(&mut rng)*cell_size[2]
             );
             particles.particles[i][j][k].push(Particle {
                 position: sub_cell_pos + jitter,
-                velocity: na::Vector3::<f32>::new(0.0, 0.0, 0.0),
+                velocity: na::Vector3::<f64>::new(0.0, 0.0, 0.0),
             })
         }
         particles
     }
     
     /// Update the particles positions using forward euler.
-    pub fn advect(&mut self, dt: f32) {
+    pub fn advect(&mut self, dt: f64) {
         for (i, j, k) in self.sub_grid.cells() {
             for particle in &mut self.particles[i][j][k] {
                 particle.position += particle.velocity*dt;
@@ -89,7 +89,7 @@ impl Particles {
     /// * q - the generalized velocities of the grid
     /// # Results
     /// * Updates the particles velocities using the pic method.
-    pub fn update_using_pic(&mut self, mac_grid: &MACGrid, velocity_vec: &na::DVector<f32>) {
+    pub fn update_using_pic(&mut self, mac_grid: &MACGrid, velocity_vec: &na::DVector<f64>) {
         for (i, j, k) in self.sub_grid.cells() {
             for comp in Component::iterator() {
                 let comp_grid = mac_grid.get_velocity_grid(comp);
@@ -133,7 +133,7 @@ impl Particles {
     /// # Arguments
     /// * `force` - force that can be sampled at each particle
     /// Apply external force to all particles using forward euler.
-    pub fn apply_force<T>(&mut self, force: &T, dt: f32) where T: Force{
+    pub fn apply_force<T>(&mut self, force: &T, dt: f64) where T: Force{
         for (i, j, k) in self.sub_grid.cells() {
             for particle in &mut self.particles[i][j][k] {
                 particle.velocity += dt*force.get_force(particle);

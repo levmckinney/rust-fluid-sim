@@ -3,26 +3,26 @@ use nalgebra as na;
 
 /// Create the precondioner matrix for a fluid simulation we use the same one as in
 /// the fluid notes. #TODO add name of it here
-pub fn fluid_sim_preconditioner() -> na::CsMatrix<f32> {
+pub fn fluid_sim_preconditioner() -> na::CsMatrix<f64> {
     unimplemented!();
 }
 
 /// Run preconditioned conjugate gradient algorithm decomposition
 pub fn pre_conditioned_conjugate_gradient(
-    pre_cond: na::CsMatrix<f32>, 
-    A: na::CsMatrix<f32>,
-    y: na::DVector<f32>,
+    pre_cond: na::CsMatrix<f64>, 
+    A: na::CsMatrix<f64>,
+    y: na::DVector<f64>,
     iterations: usize,
-) -> na::DVector<f32> {
+) -> na::DVector<f64> {
     unimplemented!();
 }
 
 pub fn conjugate_gradient(
     mac_grid: &MACGrid,
-    init_guess: &na::DVector<f32>,
-    b: &na::DVector<f32>,
-    tol: f32,
-    max_iterations: usize) -> na::DVector<f32> {
+    init_guess: &na::DVector<f64>,
+    b: &na::DVector<f64>,
+    tol: f64,
+    max_iterations: usize) -> na::DVector<f64> {
     let mut x = init_guess.clone();
     let mut r = b - mac_grid.div_grad_pressure(init_guess); // TODO put this behind a trait
     if r.abs().max() < tol { // Init guess good enough
@@ -45,6 +45,6 @@ pub fn conjugate_gradient(
         p = &r + beta*p;
         rsold = rsnew;
     }
-    println!("max div {}", (b - mac_grid.div_grad_pressure(&x)).abs().max());
+    println!("max norm div after {}", (b - mac_grid.div_grad_pressure(&x)).abs().max());
     return x;
 }
