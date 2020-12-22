@@ -10,7 +10,7 @@ pub struct ConstantForce {
 }
 
 impl Force for ConstantForce {
-    fn get_force(&self, particle: &Particle) -> na::Vector3<f64> {
+    fn get_force(&self, _particle: &Particle) -> na::Vector3<f64> {
         self.force
     }
 }

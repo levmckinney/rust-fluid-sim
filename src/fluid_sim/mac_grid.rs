@@ -1,10 +1,7 @@
-use super::particle::{Particle, Particles};
-use super::utils::{sum_from_triplets, Triplets, Grid};
+use super::particle::{Particles};
+use super::utils::{Grid};
 use std::slice::Iter;
 
-use rayon::iter::ParallelBridge;
-use rayon::prelude::ParallelIterator;
-use std::sync::mpsc::channel;
 use nalgebra::base::dimension::{U6, U7};
 use nalgebra as na;
 
@@ -22,33 +19,45 @@ impl Component {
     }
 }
 
+/// A struct representing a mac grid
 pub struct MACGrid {
-    pub base_grid: Grid,
-    pub u_grid: Grid,
-    pub v_grid: Grid,
-    pub w_grid: Grid,
-    pub p_grid: Grid,
+    /// The space of cells to simulate.
+    pub base_grid: Grid, 
+    /// Staggered grid velocities in the X direction.
+    pub u_grid: Grid, 
+    /// Staggered grid velocities in the Y direction.
+    pub v_grid: Grid, 
+    /// Staggered grid velocities in the Z direction.
+    pub w_grid: Grid, 
+    /// Staggered grid holding pressures at the center of each cell.
+    pub p_grid: Grid, 
 }
 
 impl MACGrid {
-    pub fn new(grid: &Grid, density: f64) -> Self {
-        let Grid {dims, grid_shape, offset} = grid;
+    // Public interface
+    pub fn new(grid: &Grid) -> Self {
+        let Grid {dims:_, grid_shape, offset} = grid;
         let cell_size = grid.cell_size();
+        // The staggered grids
         let u_grid = Grid::new(
-            offset - na::Vector3::new(cell_size[0]/2.0, 0.0, 0.0),
+            offset - na::Vector3::new(0.0, cell_size[0]/2.0, cell_size[0]/2.0),
             cell_size,
-            (grid_shape.0 + 2, grid_shape.1 + 1, grid_shape.2 + 1)
+            (grid_shape.0 + 1, grid_shape.1 + 2, grid_shape.2 + 2)
         );
         let v_grid = Grid::new(
-            offset - na::Vector3::new(0.0, cell_size[1]/2.0, 0.0),
+            offset - na::Vector3::new(cell_size[0]/2.0, 0.0, cell_size[0]/2.0),
             cell_size,
-            (grid_shape.0 + 1, grid_shape.1 + 2, grid_shape.2 + 1)
+            (grid_shape.0 + 2, grid_shape.1 + 1, grid_shape.2 + 2)
         );
         let w_grid = Grid::new(
-            offset - na::Vector3::new(0.0, 0.0, cell_size[2]/2.0),
+            offset - na::Vector3::new(cell_size[0]/2.0, cell_size[0]/2.0, 0.0),
             cell_size,
-            (grid_shape.0 + 1, grid_shape.1 + 1, grid_shape.2 + 2)
+            (grid_shape.0 + 2, grid_shape.1 + 2, grid_shape.2 + 1)
         );
+        // The pressure grid is 2 larger on in all directions to
+        // account for the pressures within the walls.
+        // Note that the pressure grid is offset buy one cell. So point (0,0,0) in
+        // the base grid is (1, 1, 1) in the pressure grid.
         let p_grid = Grid::new(
             offset - cell_size*0.5,
             cell_size,
@@ -64,8 +73,7 @@ impl MACGrid {
         }
     }
 
-    /// Get the size of the generalized velocity vector 
-    /// required by this mac_grid
+    /// Get the size of the generalized velocity vector required by this mac_grid
     pub fn get_velocity_size(&self) -> usize {
         self.u_grid.num_cells() + self.v_grid.num_cells() + self.w_grid.num_cells()
     }
@@ -75,7 +83,6 @@ impl MACGrid {
         self.p_grid.num_cells()
     }
 
-    // Public interface
     // Getters and setters
     pub fn get_velocity_grid(&self, c: &Component) -> &Grid {
         match c {
@@ -98,7 +105,8 @@ impl MACGrid {
         self.p_grid.flat_ind(i, j, k)
     }
 
-    pub fn set_from_particles(&self, q: &mut na::DVector<f64>, particles: &Particles){
+    /// Set each component the velocity grid based on the 
+    pub fn set_from_particles(&self, velocity_vec: &mut na::DVector<f64>, particles: &Particles){
         for comp in Component::iterator() {
             let comp_grid = self.get_velocity_grid(comp);
             for (i, j, k) in comp_grid.cells() {
@@ -109,9 +117,9 @@ impl MACGrid {
                     // The index of the corresponding cell in the
                     // particle subdivided grid.
                     let sub_grid_ind = match comp {
-                        Component::U => (2*i - 1, 2*j, 2*k),
-                        Component::V => (2*i, 2*j - 1, 2*k),
-                        Component::W => (2*i, 2*j, 2*k - 1)
+                        Component::U => (2*i, 2*j - 1, 2*k - 1),
+                        Component::V => (2*i - 1, 2*j, 2*k - 1),
+                        Component::W => (2*i - 1, 2*j - 1, 2*k)
                     }; 
                     // We get all particles within a 2 by 2 grid cell box surrounding 
                     // the position of the velocity component
@@ -136,12 +144,16 @@ impl MACGrid {
                     velocity /= sum;
                 }
                 // Set the proper index in velocity to newly interpolated value.
-                q[self.get_velocity_ind(comp, i, j, k)] = velocity;
+                velocity_vec[self.get_velocity_ind(comp, i, j, k)] = velocity;
             }
         }
     }
 
-    /// Assembles the global divergence operator matrix.
+    /// # Arguments
+    /// * `velocity_vec` - a self.get_velocity_size() vector representing the velocity at every point within the grid and
+    ///     on the boundary
+    /// # Returns
+    ///     the velocity divergence of the velocity
     pub fn div_velocity_operator(&self, velocity_vec: &na::DVector<f64>) -> na::DVector<f64> {
         let div_op_local = self.div_operator_local();
         na::DVector::from_iterator(self.get_pressure_size(), 
@@ -160,11 +172,14 @@ impl MACGrid {
                     self.get_velocity_ind(comp, *i, *j, *k));
                 let local_velocities = na::Vector6::<f64>::from_iterator(
                     velocity_vector_inds.map(|l| velocity_vec[l]));
-                //println!("div_op_local {} \n boundary filter {} \n local velocities {}", div_op_local, boundary_filter, local_velocities);
                 (div_op_local*boundary_filter*local_velocities)[0]}))
     }
 
-    /// Returns global divergence of grad of pressure operator.
+    /// # Arguments
+    /// * `pressure_vec` - a self.get_pressure_size() dimensional vector representing
+    ///     the pressure on the grid.
+    /// Returns
+    ///     The divergence of the gradient of the pressure.
     pub fn div_grad_pressure(&self, pressure_vec: &na::DVector<f64>) -> na::DVector<f64> {
         let div_op_local = self.div_operator_local();
         let grad_op_local = self.grad_operator_local();
@@ -180,7 +195,12 @@ impl MACGrid {
                 (div_op_local*boundary_filter*grad_op_local*local_pressures)[0]
             }))
     }
-    
+    /// # Arguments
+    /// * `pressure_vec` - a self.get_pressure_size() dimensional vector representing
+    ///     the pressure on the grid.
+    /// # Returns
+    ///     A self.get_velocity_size() dimensional vector containing the gradient of the pressure.
+
     pub fn grad_pressure(&self, pressure_vec: &na::DVector<f64>) -> na::DVector<f64> {
         let grad_op_local = self.grad_operator_local();
         let mut grad_pressure = na::DVector::zeros(self.get_velocity_size());
@@ -201,7 +221,8 @@ impl MACGrid {
         grad_pressure
     }
 
-    /// Returns true pressure at point i, j, k is outside or on the boundary.
+    /// Returns true pressure at point i, j, k is outside or on the boundary  of the
+    /// pressure grid.
     pub fn is_boundary_pressure(&self, i: usize, j:usize, k: usize) -> bool {
         (i == 0) 
         || (j == 0) 
@@ -235,19 +256,19 @@ impl MACGrid {
     }
 
     // Useful latter for implementing constant flow boundary condition.
-    fn boundary_velocity(&self, c: &Component, i: usize, j:usize, k: usize) -> f64 {
+    fn boundary_velocity(&self, _c: &Component, _i: usize, _j:usize, _k: usize) -> f64 {
         0.0
     }
     
     /// Take a base cell and return the local velocity indices. 
     fn get_local_velocity_inds(&self, i: usize, j: usize, k: usize) -> [(Component, usize, usize, usize); 6] {
         debug_assert!(self.base_grid.index_within(i, j, k));
-        [(Component::U, i + 1, j, k), 
-        (Component::U, i + 2, j, k), 
-        (Component::V, i, j + 1, k), 
-        (Component::V, i, j + 2, k), 
-        (Component::W, i, j, k + 1),
-        (Component::W, i, j, k + 2)]
+        [(Component::U, i, j + 1, k + 1), 
+        (Component::U, i + 1, j + 1, k + 1), 
+        (Component::V, i + 1, j, k + 1), 
+        (Component::V, i + 1, j + 1, k + 1), 
+        (Component::W, i + 1, j + 1, k),
+        (Component::W, i + 1, j + 1, k + 1)]
     }
 
     /// Take an index into pressures and return the indices of the surounding pressures.

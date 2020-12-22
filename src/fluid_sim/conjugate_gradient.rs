@@ -12,7 +12,6 @@ pub fn conjugate_gradient(
     if r.abs().max() < tol { // Init guess good enough
         return x;
     }
-    println!("before max div {}", r.abs().max());
     let mut p = r.clone();
     let mut rsold = r.dot(&r);
 
@@ -29,6 +28,5 @@ pub fn conjugate_gradient(
         p = &r + beta*p;
         rsold = rsnew;
     }
-    println!("max norm div after {}", (b - mac_grid.div_grad_pressure(&x)).abs().max());
     return x;
 }

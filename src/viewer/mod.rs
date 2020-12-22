@@ -24,8 +24,8 @@ impl Plugin for FluidSimViewer {
     fn build(&self, app: &mut AppBuilder) {
         // add things to your app here
         app.add_resource(FluidSim::new(self.config, SphereForce {
-                inside_force: na::Vector3::<f64>::new(0.0, 1.0, 0.0),
-                outside_force: na::Vector3::<f64>::new(0.0, -0.5, 0.0),
+                inside_force: na::Vector3::<f64>::new(0.0, 10.0, 0.0),
+                outside_force: na::Vector3::<f64>::new(0.0, 0.0, 0.0),
                 center: na::Vector3::<f64>::new(0.5, 0.5, 0.5),
                 radius: 0.2
             }))
@@ -74,7 +74,7 @@ fn setup(
             ..Default::default()
         }).with(RotatingCamera{speed: 2.0, angle: 0.0, distance: 1.3});
     // Make view particles 
-    for _ in 0..(10*10*10*8) {
+    for _ in 0..(7*7*7*8) {
         commands.spawn(
             PbrComponents {
                 mesh: meshes.add(Mesh::from(shape::Icosphere { radius: 1.0, subdivisions:1 })),
@@ -116,7 +116,7 @@ fn rotate_camera(time: Res<Time>,
     *cam_transform = cam_transform.looking_at(obj_transform.translation, Vec3::unit_y());
 }
 
-fn update_view_particles(time: Res<Time>, 
+fn update_view_particles(
                     keyboard_input: Res<Input<KeyCode>>,
                     mut fluid_sim: ResMut<FluidSim<SphereForce>>, 
                     mut view_particles: Query<(&ViewParticle, &mut Transform)>) {
@@ -126,8 +126,6 @@ fn update_view_particles(time: Res<Time>,
         let (_, mut particle_trans) = view_particle;
         particle_trans.scale = Vec3::zero();
     }
-
-    println!("time elapsed {:?}", time.delta_seconds);
     if keyboard_input.pressed(KeyCode::V) {
         let grad_pressure = fluid_sim.mac_grid.grad_pressure(&fluid_sim.pressure);
         Component::iterator()
@@ -139,30 +137,28 @@ fn update_view_particles(time: Res<Time>,
                 *particle_trans.translation.x_mut() = position[0] as f32;
                 *particle_trans.translation.y_mut() = position[1] as f32;
                 *particle_trans.translation.z_mut() = position[2] as f32;
-                //*particle_trans.scale.x_mut() = 0.01;
-                //*particle_trans.scale.y_mut() = 0.01;
-                //*particle_trans.scale.z_mut() = 0.01;
-                let vel = grad_pressure[fluid_sim.mac_grid.get_velocity_ind(comp, i,j,k)] as f32;
+                *particle_trans.scale.x_mut() = 0.01;
+                *particle_trans.scale.y_mut() = 0.01;
+                *particle_trans.scale.z_mut() = 0.01;
+                let vel = (grad_pressure[fluid_sim.mac_grid.get_velocity_ind(comp, i,j,k)] as f32)*0.1;
                 match comp {
                     Component::U => {
                         *particle_trans.translation.x_mut() += vel/2.0; 
-                        *particle_trans.scale.x_mut() = 0.0;
+                        *particle_trans.scale.x_mut() = vel;
                     }
                     Component::V => {
-                        *particle_trans.scale.x_mut() = 0.01;
                         *particle_trans.translation.y_mut() += vel/2.0; 
                         *particle_trans.scale.y_mut() = vel;
-                        *particle_trans.scale.z_mut() = 0.01;
                     }
                     Component::W => {
                         *particle_trans.translation.z_mut() += vel/2.0; 
-                        *particle_trans.scale.z_mut() = 0.0;
+                        *particle_trans.scale.z_mut() = vel;
                     }
                 }
                  
             });
     } else if keyboard_input.pressed(KeyCode::P) {
-        for ((i, j, k), mut view_particle) in fluid_sim.mac_grid.p_grid.cells().zip(view_particles.iter_mut()) {
+        for ((i, j, k), view_particle) in fluid_sim.mac_grid.p_grid.cells().zip(view_particles.iter_mut()) {
             let (_, mut particle_trans) = view_particle;
             let position = fluid_sim.mac_grid.p_grid.get_position(i,j,k);
             *particle_trans.translation.x_mut() = position[0] as f32;
@@ -174,7 +170,7 @@ fn update_view_particles(time: Res<Time>,
             *particle_trans.scale.z_mut() = pressure as f32; 
         }
     } else {
-        for (mut view_particle, sim_particle) in view_particles.iter_mut().zip(sim_particles.into_iter()) {
+        for (view_particle, sim_particle) in view_particles.iter_mut().zip(sim_particles.into_iter()) {
             let (_, mut particle_trans) = view_particle;
             *particle_trans.translation.x_mut() = sim_particle.position[0] as f32;
             *particle_trans.translation.y_mut() = sim_particle.position[1] as f32;

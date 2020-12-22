@@ -58,8 +58,7 @@ impl Grid {
         assert!(
             i < self.grid_shape.0 && j < self.grid_shape.1 && k < self.grid_shape.2,
             "grid_shape = {:?}, (i, j, k) = {:?}, clamped_centered = {}", 
-            self.grid_shape, (i, j, k), clamped_centered
-        ); // I messing with a tricky type conversion here.
+            self.grid_shape, (i, j, k), clamped_centered); // I messing with a tricky type conversion here.
         (i, j, k)
     }
 
@@ -118,62 +117,5 @@ impl Grid {
             _ => panic!("position not adjacent to cell_ind!")
         };
         term1*term2*term3
-    }
-}
-
-pub type Triplet = ((usize, usize), f64);
-pub type Triplets = Vec<Triplet>;
-
-fn sum_duplicate_triplets(triplets: Triplets) -> Triplets {
-    let mut triplets = triplets.clone();
-    triplets.sort_by(|item1, item2|
-        if item1.0.0 == item2.0.0 {
-            item1.0.1.cmp(&item2.0.1)
-        } else {
-            item1.0.0.cmp(&item2.0.0)
-        }
-    );
-
-    let mut deduped_triplets = Vec::new();
-    let mut last = None;
-    let mut sum = 0.0;
-    for (indices, value) in triplets {
-        if last.is_none() || indices == last.unwrap() {
-            sum += value;
-        } else if last.is_some(){
-            deduped_triplets.push((last.unwrap(), sum));
-            sum = value;
-        }
-        last = Some(indices);
-    }
-    deduped_triplets.push((last.unwrap(), sum));
-
-    deduped_triplets
-}
-
-/// Create sparse matrix from triplets. 
-/// Sum duplicate entries.
-pub fn sum_from_triplets(nrows: usize, ncols: usize, triplets: Triplets) -> na::CsMatrix<f64> {
-    let deduped_triplets = sum_duplicate_triplets(triplets);
-    for ((i, j), _) in &deduped_triplets {
-        assert!(*i < nrows && *j < ncols, "i: {:?}, j:{:?}, nrows: {:?} ncols: {:?}", i, j, nrows, ncols);
-    }
-    let (inds, vals): (Vec<(usize, usize)>, Vec<f64>) = deduped_triplets.into_iter().unzip();
-    let (irows, icols): (Vec<usize>, Vec<usize>) = inds.into_iter().unzip();
-    na::CsMatrix::<f64>::from_triplet(nrows, ncols, &irows[..], &icols[..], &vals[..])
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_sum_duplicate_triplets() {
-        assert_eq!(sum_duplicate_triplets(
-            vec![((1, 2), 2.0),
-            ((1, 1), 0.6),
-            ((1, 1), 0.4)]),
-            vec![((1, 1), 1.0), ((1, 2), 2.0)]           
-        )
     }
 }
