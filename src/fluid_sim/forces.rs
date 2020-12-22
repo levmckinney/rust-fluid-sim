@@ -19,16 +19,17 @@ impl Force for ConstantForce {
 pub struct SphereForce {
     pub center: na::Vector3<f64>,
     pub radius: f64,
-    pub force: na::Vector3<f64>,
+    pub inside_force: na::Vector3<f64>,
+    pub outside_force: na::Vector3<f64>
 }
 
 
 impl Force for SphereForce {
     fn get_force(&self, particle: &Particle) -> na::Vector3<f64> {
         if (particle.position - self.center).norm().abs() < self.radius {
-            self.force
+            self.inside_force
         } else {
-            na::Vector3::zeros()
+            self.outside_force
         }
     }
 }

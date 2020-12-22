@@ -201,6 +201,27 @@ impl MACGrid {
         grad_pressure
     }
 
+    /// Returns true pressure at point i, j, k is outside or on the boundary.
+    pub fn is_boundary_pressure(&self, i: usize, j:usize, k: usize) -> bool {
+        (i == 0) 
+        || (j == 0) 
+        || (k == 0) 
+        || (i >= self.p_grid.grid_shape.0 - 1)
+        || (j >= self.p_grid.grid_shape.1 - 1)
+        || (k >= self.p_grid.grid_shape.2 - 1)
+    }
+
+    /// Returns weather velocity component c at position i, j, k is on or outside the boundary.
+    pub fn is_boundary_velocity(&self, c: &Component, i: usize, j: usize, k: usize) -> bool {
+        let comp_grid = self.get_velocity_grid(c);
+        (i == 0) 
+        || (j == 0) 
+        || (k == 0) 
+        || (i >= comp_grid.grid_shape.0 - 1) 
+        || (j >= comp_grid.grid_shape.1 - 1) 
+        || (k >= comp_grid.grid_shape.2 - 1)
+    }
+    
     //Private methods
     /// Takes indices over the pressure grid.
     /// returns local pressure vector
@@ -213,30 +234,9 @@ impl MACGrid {
             pressure_vector_inds.map(|l| pressure_vec[l]))
     }
 
-    /// Returns weather velocity component c at position i, j, k is on or outside the boundary.
-    fn is_boundary_velocity(&self, c: &Component, i: usize, j: usize, k: usize) -> bool {
-        let comp_grid = self.get_velocity_grid(c);
-        (i == 0) 
-        || (j == 0) 
-        || (k == 0) 
-        || (i >= comp_grid.grid_shape.0 - 1) 
-        || (j >= comp_grid.grid_shape.1 - 1) 
-        || (k >= comp_grid.grid_shape.2 - 1)
-    }
-
     // Useful latter for implementing constant flow boundary condition.
     fn boundary_velocity(&self, c: &Component, i: usize, j:usize, k: usize) -> f64 {
         0.0
-    }
-
-    /// Returns true pressure at point i, j, k is outside or on the boundary.
-    fn is_boundary_pressure(&self, i: usize, j:usize, k: usize) -> bool {
-        (i == 0) 
-        || (j == 0) 
-        || (k == 0) 
-        || (i >= self.p_grid.grid_shape.0 - 1)
-        || (j >= self.p_grid.grid_shape.1 - 1)
-        || (k >= self.p_grid.grid_shape.2 - 1)
     }
     
     /// Take a base cell and return the local velocity indices. 

@@ -28,7 +28,7 @@ impl Default for SimConfig {
             density: 1.225, // density of air in Kg per meter cubed
             grid: Grid {
                 dims: na::Vector3::new(1.0, 1.0, 1.0),
-                grid_shape: (10, 10, 10),
+                grid_shape: (11, 11, 11),
                 offset: na::Vector3::zeros()
             }
         }
@@ -71,6 +71,7 @@ impl<T> FluidSim <T> where T: Force {
     /// Results:
     /// * updates the state of the simulation by one time step of length dt.
     pub fn step(&mut self) {
+        let old_velocity_vec = self.velocity.clone();
         self.particles.advect(self.dt);
         self.particles.apply_force(&self.external_force, self.dt);
         self.mac_grid.set_from_particles(&mut self.velocity, &self.particles);
@@ -81,14 +82,13 @@ impl<T> FluidSim <T> where T: Force {
             &self.mac_grid,
             &self.pressure,
             &d,
-            1.0e-10,
-            1000);
-        if self.pressure.iter().all(|f| !f.is_nan()) {
-            self.pressure = new_pressure;
-        }
+            1.0e-12,
+            10000);
+        
+        self.pressure = new_pressure;
         println!("max velocity {}", self.velocity.abs().max());
         self.velocity -= (self.dt/self.density)*self.mac_grid.grad_pressure(&self.pressure);
-        self.particles.update_using_pic(&self.mac_grid, &self.velocity);
+        self.particles.update_using_flip(&self.mac_grid, &self.velocity, &old_velocity_vec);
     }
 
     pub fn get_grid(&self) -> Grid {

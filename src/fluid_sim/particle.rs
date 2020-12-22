@@ -106,7 +106,7 @@ impl Particles {
                 // within the grid cell.
                 for particle in &mut self.particles[i][j][k] {
                     let mut velocity = 0.0;
-                    let mut sum = 0.0;
+                    let mut sum = 0.001;
                     for corner in &corners {
                         let weight = comp_grid.bilinear_weight(corner, &particle.position);
                         let vel_component = velocity_vec[mac_grid.get_velocity_ind(comp, corner.0, corner.1, corner.2)];
@@ -123,6 +123,56 @@ impl Particles {
                         }
                         Component::W => {
                             particle.velocity[2] = velocity;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+        /// # Arguments
+    /// * mac_grid - a mac grid representing static grid.
+    /// * q - the generalized velocities of the grid
+    /// # Results
+    /// * Updates the particles velocities using the pic method.
+    pub fn update_using_flip(&mut self, mac_grid: &MACGrid, velocity_vec: &na::DVector<f64>, old_velocity_vec: &na::DVector<f64>) {
+        for (i, j, k) in self.sub_grid.cells() {
+            for comp in Component::iterator() {
+                let comp_grid = mac_grid.get_velocity_grid(comp);
+                let enclosing_grid_cell = match comp {
+                    Component::U => ((i + 1)/2, j/2, k/2),
+                    Component::V => (i/2, (j + 1)/2, k/2),
+                    Component::W => (i/2, j/2, (k + 1)/2)
+                };
+                
+                let corners = iproduct!(0..2, 0..2, 0..2).map(|c|
+                    (enclosing_grid_cell.0 + c.0, enclosing_grid_cell.1 + c.1, enclosing_grid_cell.2 + c.2)
+                ).collect::<Vec<(usize, usize, usize)>>();
+                // Now we linearly interpolate from the corners to find the velocity at the particles position
+                // within the grid cell.
+                for particle in &mut self.particles[i][j][k] {
+                    let mut velocity_update = 0.0;
+                    let mut sum = 0.001;
+                    for corner in &corners {
+                        // To keep the particles from sticking to the walls
+                        let weight = comp_grid.bilinear_weight(corner, &particle.position);
+                        let vel_ind = mac_grid.get_velocity_ind(comp, corner.0, corner.1, corner.2);
+                        let vel_component = velocity_vec[vel_ind];
+                        let old_velocity_component  = old_velocity_vec[vel_ind];
+                        sum += weight;
+                        velocity_update += weight*(vel_component - old_velocity_component);
+                    }
+                    velocity_update /= sum;
+                    match comp {
+                        Component::U => {
+                            particle.velocity[0] += velocity_update;
+                        }
+                        Component::V => {
+                            particle.velocity[1] += velocity_update;
+                        }
+                        Component::W => {
+                            particle.velocity[2] += velocity_update;
                         }
                     }
                 }

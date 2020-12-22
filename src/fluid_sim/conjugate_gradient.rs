@@ -1,22 +1,6 @@
 use super::mac_grid::MACGrid;
 use nalgebra as na;
 
-/// Create the precondioner matrix for a fluid simulation we use the same one as in
-/// the fluid notes. #TODO add name of it here
-pub fn fluid_sim_preconditioner() -> na::CsMatrix<f64> {
-    unimplemented!();
-}
-
-/// Run preconditioned conjugate gradient algorithm decomposition
-pub fn pre_conditioned_conjugate_gradient(
-    pre_cond: na::CsMatrix<f64>, 
-    A: na::CsMatrix<f64>,
-    y: na::DVector<f64>,
-    iterations: usize,
-) -> na::DVector<f64> {
-    unimplemented!();
-}
-
 pub fn conjugate_gradient(
     mac_grid: &MACGrid,
     init_guess: &na::DVector<f64>,
