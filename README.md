@@ -16,7 +16,7 @@ $ cargo run --release
 This should build the code and start the simulation :D
 ## IDE for reading through the code
 If you want to read the code with the ability to jump to definitions and get documentation when you hover
-over things I recommend VSC with the `rust-lang.rust` and `matklad.rust-analyzer` extensions installed.
+over things I recommend VS Code with the `rust-lang.rust` and `matklad.rust-analyzer` extensions installed.
 ## Project structure
 Physics simulation code in the project is held within `src/fluid_sim`
 To start reading through start with `src/fluid_sim/mod.rs`
